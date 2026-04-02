@@ -26,7 +26,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime
+from datetime import datetime, timezone, UTC
 
 from target_parser  import parse_market, calculate_proximity
 from proximity_db   import (
@@ -85,7 +85,7 @@ BINANCE_SYMBOLS = {
 
 
 def now():
-    return datetime.utcnow()
+    return datetime.now(datetime.UTC)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ async def fetch_price_target_markets(session: aiohttp.ClientSession) -> list:
             log.warning("Gamma fetch error: %s", e)
             break
 
-    log.debug("Fetched %d candidate markets", len(markets))
+    log.info("Fetched %d candidate markets", len(markets))
     return markets
 
 
@@ -454,6 +454,10 @@ async def scan_once(pool, session, alerted_markets: set):
         parsed = parse_market_data(raw_market)
         if not parsed:
             continue
+        log.info("  Candidate: %s | %s $%,.0f %s | %.0fc | prox=checking",
+                 parsed["asset"], parsed["direction"],
+                 parsed["target_price"], parsed["question"][:40],
+                 parsed["yes_price"]*100)
 
         market_id = parsed["market_id"]
         if market_id in alerted_markets:
@@ -466,17 +470,27 @@ async def scan_once(pool, session, alerted_markets: set):
         # Get current asset price
         current_price = await get_asset_price(session, asset)
         if not current_price:
+            log.warning("  Could not get %s price from Binance", asset)
             continue
+        log.info("    Binance %s: $%,.0f | target: $%,.0f | proximity: %.1f%%",
+                 asset, current_price, target_price,
+                 abs(current_price - target_price) / target_price * 100)
 
         # Calculate proximity
         prox = calculate_proximity(current_price, target_price, direction)
 
         # Skip if already past target (different trade) or too far
         if prox["already_past"]:
+            log.info("    → SKIP: already past target (current=${:,.0f} target=${:,.0f})".format(
+                current_price, target_price))
             continue
         if prox["proximity_pct"] > MAX_PROXIMITY:
+            log.info("    → SKIP: too far (%.1f%% > %.1f%% max)",
+                     prox["proximity_pct"], MAX_PROXIMITY)
             continue
         if prox["proximity_pct"] < MIN_PROXIMITY:
+            log.info("    → SKIP: already at target (%.1f%% < %.1f%% min)",
+                     prox["proximity_pct"], MIN_PROXIMITY)
             continue
 
         # Log and alert
@@ -514,7 +528,7 @@ async def scan_once(pool, session, alerted_markets: set):
     if new_alerts:
         log.info("Scan complete: %d new proximity alerts", new_alerts)
     else:
-        log.debug("Scan complete: no new proximity opportunities")
+        log.info("Scan complete: no new proximity opportunities found")
 
 
 async def send_daily_summary(pool):
