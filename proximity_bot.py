@@ -26,7 +26,7 @@ import json
 import logging
 import os
 import re
-from datetime import datetime, timezone, UTC
+from datetime import datetime
 
 from target_parser  import parse_market, calculate_proximity
 from proximity_db   import (
@@ -85,7 +85,7 @@ BINANCE_SYMBOLS = {
 
 
 def now():
-    return datetime.now(datetime.UTC)
+    return datetime.utcnow()
 
 
 # ─────────────────────────────────────────────────────────────
