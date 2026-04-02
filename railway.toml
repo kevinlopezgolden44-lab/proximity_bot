@@ -1,0 +1,2 @@
+[deploy]
+startCommand = "python proximity_bot.py"
